@@ -3,7 +3,7 @@ const readline = require("readline/promises");
 
 const CONFIG_PATH = "config.json";
 const AUTH_STATE_PATH = "auth.json";
-const PAGE_SIZE = 1000;
+const PAGE_SIZE = 50;
 
 function loadProjectTasksUrl() {
   if (!fs.existsSync(CONFIG_PATH)) {
@@ -44,29 +44,15 @@ function buildMyTasksUrl(projectTasksUrl, projectId, limit, offset) {
     "0": {
       json: {
         annotationProjectId: projectId,
-        pipelineStageId: null,
-        statuses: null,
-        attempters: null,
-        search: null,
         limit,
         offset,
         sortBy: "taskId",
         sortOrder: "desc",
         removeSkipped: true,
         statusFilter: "all",
-        categories: null,
-        priorityLevel: null,
       },
       meta: {
-        values: {
-          pipelineStageId: ["undefined"],
-          statuses: ["undefined"],
-          attempters: ["undefined"],
-          search: ["undefined"],
-          categories: ["undefined"],
-          priorityLevel: ["undefined"],
-        },
-        v: 1,
+        values: {},
       },
     },
   };
@@ -177,7 +163,7 @@ async function fetchTasksPage(projectTasksUrl, storageState, limit, offset) {
   }
 
   if (!response.ok) {
-    throw new Error(`Handshake API failed with status ${response.status}.`);
+    const text = await response.text(); throw new Error(`Handshake API failed with status ${response.status}: ${text}`);
   }
 
   return response.json();
@@ -187,18 +173,45 @@ async function fetchAllTaskStages(projectTasksUrl, storageState, pageSize = PAGE
   const results = [];
 
   for (let offset = 0; ; offset += pageSize) {
-    const payload = await fetchTasksPage(
-      projectTasksUrl,
-      storageState,
-      pageSize,
-      offset
-    );
-    const tasks = extractTasks(payload);
+    try {
+      const payload = await fetchTasksPage(
+        projectTasksUrl,
+        storageState,
+        pageSize,
+        offset
+      );
+      const tasks = extractTasks(payload);
 
-    results.push(...extractTaskStages(payload));
+      results.push(...extractTaskStages(payload));
 
-    if (tasks.length < pageSize) {
-      break;
+      if (tasks.length < pageSize) {
+        break;
+      }
+    } catch (err) {
+      if (err.message.includes("status 500")) {
+        console.warn(`\\nWarning: Backend returned 500 for offset ${offset}, limit ${pageSize}. Falling back to 1-by-1 fetching for this chunk...`);
+        let reachedEnd = false;
+        
+        for (let i = 0; i < pageSize; i++) {
+          try {
+            const singlePayload = await fetchTasksPage(projectTasksUrl, storageState, 1, offset + i);
+            const singleTasks = extractTasks(singlePayload);
+            results.push(...extractTaskStages(singlePayload));
+            if (singleTasks.length === 0) {
+              reachedEnd = true;
+              break;
+            }
+          } catch (singleErr) {
+            console.warn(`  -> Skipping broken task at offset ${offset + i}`);
+          }
+        }
+        
+        if (reachedEnd) {
+          break;
+        }
+      } else {
+        throw err;
+      }
     }
   }
 
