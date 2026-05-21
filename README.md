@@ -52,3 +52,18 @@ Generated files:
 - `config.json`
 - `ids.json`
 - `stages.json`
+
+
+  const stages = [
+    "Attempt",
+    "Eval Stage 1",
+    "Review 1",
+    "BPO Holding",
+    "Pending Pass@",
+    "Submitted for Pass@",
+    "CL AYDEN",
+    "Pass@0",
+    "Internal Audit",
+    "Ready to Deliver",
+    "Delivered",
+  ];
